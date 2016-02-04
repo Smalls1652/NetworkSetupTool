@@ -1,6 +1,10 @@
 # ECU Network Setup Tool
 This is a personal project to make the BYOD policy at East Carolina University much easier.
 
+What this tool does:
+
+Students at East Carolina University are required to have software and network profiles set up to access the network in the dorms and throughout campus. This tool is meant to smooth the process for both employees of the student computer repair shop on campus and students of the university.
+
 Some notes:
 
 1. The code is written in the AutoIT language. To learn more about AutoIT, check out https://www.autoitscript.com/site/autoit/.
