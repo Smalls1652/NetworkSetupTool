@@ -1,4 +1,4 @@
-# ECU Network Setup too.
+# ECU Network Setup Tool
 This is a personal project to make the BYOD policy at East Carolina University much easier.
 
 Some notes:
