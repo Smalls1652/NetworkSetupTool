@@ -1,8 +1,8 @@
 #pragma compile(FileDescription, ECU Network Setup)
 #pragma compile(ProductName, ECU Network Setup)
-#pragma compile(ProductVersion, 3.4)
-#pragma compile(FileVersion, 3.4)
-#pragma compile(LegalCopyright, © Tim Small 2014-2015)
+#pragma compile(ProductVersion, 3.6)
+#pragma compile(FileVersion, 3.6)
+#pragma compile(LegalCopyright, © Tim Small 2014-2016)
 #pragma compile(CompanyName, 'ECU Pirate Techs')
 
 ;
@@ -32,8 +32,8 @@ Global $extrafolder = @ScriptDir & "\savupdate\"
 
 
 ;This is the version and the build date that will show up on the intro page.
-Global $sver = "3.5"
-Global $sdate = "02/01/2016"
+Global $sver = "3.6"
+Global $sdate = "04/11/2016"
 
 ;After a reboot, we use the temporary app. We do a check here to make sure it's currently not the temp app.
 ;If it is, it deletes the temp app.
@@ -59,6 +59,8 @@ If @OSArch == "X86" Then
 Else
    Global $is32 = False
 EndIf
+Global $CiscohadError = False
+Global $SAVhadError = False
 
 ;Detecting if the OS is Windows 8/8.1 or 10.
 ;Different methods of disabling Windows Defender is done for Windows 8/8.1 and 10, requiring two different functions.
@@ -114,9 +116,44 @@ EndIf
 
 Global $ciscoOutOfDate = False
 
+FileWrite($logname, @CRLF & "Cisco Version Before Install")
+FileWrite($logname, @CRLF & "----------------------")
+FileWrite($logname, @CRLF)
+FileWrite($logname, $installedCiscover)
 If $installedCiscover <> $curCiscover Then
    $ciscoOutOfDate = True
+   FileWrite($logname, @CRLF & "(Out-of-date)")
+Else
+   FileWrite($logname, @CRLF & "(Up-to-date)")
 EndIf
+FileWrite($logname, @CRLF)
+
+;Get SAV Version
+Global $curSAVver = "12.1.6867.6400"
+
+RunWait(@ComSpec & " /c " & "wmic product where name=""Symantec Endpoint Protection"" get version > " & @TempDir & "\ISEInstall\sav_ver.txt", "", @SW_HIDE)
+FileOpen(@TempDir & "\ISEInstall\sav_ver.txt")
+Global $installedSAVver = FileReadLine(@TempDir & "\ISEInstall\sav_ver.txt", 2)
+$installedSAVver = StringStripWS($installedSAVver, 8)
+FileClose(@TempDir & "\ISEInstall\sav_ver.txt")
+
+If $installedSAVver = "" Then
+   $installedSAVver = 0
+EndIf
+
+Global $SAVOutOfDate = False
+
+FileWrite($logname, @CRLF & "Symantec Version Before Install")
+FileWrite($logname, @CRLF & "----------------------")
+FileWrite($logname, @CRLF)
+FileWrite($logname, $installedSAVver)
+If $installedSAVver <> $curSAVver Then
+   $SAVOutOfDate = True
+   FileWrite($logname, @CRLF & "(Out-of-date)")
+Else
+   FileWrite($logname, @CRLF & "(Up-to-date)")
+EndIf
+FileWrite($logname, @CRLF)
 
 
 ;Creates GUI to let user know it is making a restore point and extracting core files.
@@ -126,11 +163,8 @@ GUICtrlSetFont($7ziptext, 14, 400)
 GUISetState(@SW_SHOW)
 
 ;If it's a first run of the setup tool, it will make a restore point and make note of it in the config file.
-;Just a note, this is placed here so that extracted files from the files.exe archive doesn't end up in the restore point.
+;Just a note, this is placed here so that extracted files from the files.exe archive don't end up in the restore point.
 If $NeedSysRestore = "True" Then
-   ;RegWrite("HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore", "SystemRestorePointCreationFrequency", "REG_DWORD", "0")
-   ;RunWait(@ComSpec & ' /c ' & @TempDir & "\ISEInstall\createrestore.bat")
-
    Call("PrepareSysRestore")
    Local $CrtSysRes = Run("PowerShell.exe -ExecutionPolicy Bypass -Command ""Checkpoint-Computer -Description 'ECU Network Setup'""", "")
    ProcessWaitClose($CrtSysRes)
@@ -176,28 +210,16 @@ Func stageOne() ;Creates the base UI, nothing special about it except contact in
 	  GUICtrlSetData($bodyText, GUICtrlRead($bodyText) & @CRLF & "" & @CRLF & "Cisco is out of date, will be updated.")
    EndIf
 
-  ; If $extrainstall = True Then
-;	  GUICtrlSetData($bodyText, GUICtrlRead($bodyText) & "" & @CRLF & "(Offline SAV definitions have been loaded)")
- ;  EndIf
-  ; GUICtrlSetFont($bodyText, 10)
-
-   ;Global $buttonBack = GUICtrlCreateButton("Troubleshoot", 5, 360, 75, 30)
-   ;GUICtrlSetState($buttonBack, $GUI_HIDE)
+   If $SAVOutOfDate = True Then
+	  GUICtrlSetData($bodyText, GUICtrlRead($bodyText) & @CRLF & "" & @CRLF & "Symantec is out of date. Please run Cleanwipe first before running this setup tool.")
+   EndIf
 
    Global $advancedInstall = GUICtrlCreateCheckbox("Advanced Install", 10, 360, 250, 30)
-   ;GUICtrlSetState($defaultInstall, $GUI_CHECKED)
-   ;Global $runLiveUp = GUICtrlCreateCheckbox("Run Symantec Updates (If Required)", 10, 360, 250, 30)
-   ;If $extrainstall = True Then
-	;  GUICtrlSetState($runLiveUp, $GUI_UNCHECKED)
-	 ; GUICtrlSetState($runLiveUp, $GUI_DISABLE)
-   ;Else
-	;  GUICtrlSetState($runLiveUp, $GUI_CHECKED)
-   ;EndIf
 
    Global $buttonNext = GUICtrlCreateButton("Next", 395, 360, 50, 30)
 
    GUICtrlSetOnEvent($buttonNext, "preInstall")
-   ;GUICtrlSetOnEvent($buttonBack, "opentrouble")
+
    GUISetOnEvent($GUI_EVENT_CLOSE, "closedown")
 
 EndFunc
@@ -221,7 +243,9 @@ Func stageChangeInstalls()
    Global $askinstallnetworkprefs = GUICtrlCreateCheckbox("Install network profiles", 20, 70, 410, 15)
    Global $askinstallsav = GUICtrlCreateCheckbox("Install Symantec Endpoint Protection", 20, 100, 410, 15)
    Global $askinstallcisco = GUICtrlCreateCheckbox("Install Cisco NAC Agent", 20, 130, 410, 15)
+   Global $buttonTemp = GUICtrlCreateButton("Files", 10, 360, 50, 30)
 
+   GUICtrlSetOnEvent($buttonTemp, "openTempFolder")
    GUICtrlSetOnEvent($buttonNext, "stageTwo")
 EndFunc
 
@@ -235,6 +259,7 @@ Func stageTwo() ;Scans for anti-virus suites. It's using the old legacy AV scann
 	  GUICtrlDelete($askinstallnetworkprefs)
 	  GUICtrlDelete($askinstallsav)
 	  GUICtrlDelete($askinstallcisco)
+	  GUICtrlDelete($buttonTemp)
    Else
 	  Global $installnetworkprefs = 1
 	  Global $installsym = 1
@@ -250,21 +275,8 @@ Func stageTwo() ;Scans for anti-virus suites. It's using the old legacy AV scann
    GUICtrlSetState($bodyText, $GUI_SHOW)
    GUICtrlSetState($buttonNext, $GUI_HIDE)
 
-   ;;Old code for running LiveUpdates during install since it never worked.
-   ;;
-   ;Local $liv = GUICtrlRead($runLiveUp)
-   ;Global $runningLiveUpdate = ""
-   ;If $liv = 1 Then
-   ;$runningLiveUpdate = True
-   ;Else
-	;  $runningLiveUpdate = False
-   ;EndIf
-   ;GUICtrlDelete($runLiveUp)
-   ;;
-
    Global $progrockbar = GUICtrlCreateProgress(5, 360, 440)
 
-   ;GUICtrlSetState($buttonBack, $GUI_HIDE)
    If $installsym = 1 Then
 
    Local $hasConn = False
@@ -345,16 +357,15 @@ Func stageFour()
    Call("everybodycleanup")
    GUICtrlSetOnEvent($buttonNext, "closedown")
    GUICtrlSetData($buttonNext, "Close")
-   GUICtrlSetData($bodyText, GUICtrlRead($bodyText) & "" & @CRLF & "All needed software and changes have been made. Click close to exit the program.")
+
+   If $CiscohadError = True Or $SAVhadError = True Then
+	  GUICtrlSetData($bodyText, GUICtrlRead($bodyText) & "" & @CRLF & "Some installs had errors. Please consult the logs in the " & @HomeDrive & "\ISELogs\ folder or visit PirateTechs in Rawl 108." )
+   Else
+	  GUICtrlSetData($bodyText, GUICtrlRead($bodyText) & "" & @CRLF & "All needed software and changes have been made. Click close to exit the program.")
+   EndIf
+
    GUICtrlSetState($buttonNext, $GUI_SHOW)
    FileDelete($conffile) ;Deletes the conf file for future installs to have a clean slate
-
-   ;Old Code Begin
-   ;
-   ;GUICtrlSetOnEvent($buttonNext, "stageFour")
-   ;GUICtrlSetState($buttonNext, $GUI_SHOW)
-   ;
-   ;Old Code End
 
 EndFunc
 
@@ -368,6 +379,11 @@ Func PrepareSysRestore()
 		 RunWait("REG ADD ""HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\SystemRestore"" /f /v ""SystemRestorePointCreationFrequency"" /t REG_DWORD /d ""0"" /reg:64")
 	  EndIf
    EndIf
+EndFunc
+
+Func openTempFolder()
+   Run("explorer.exe """ & @TempDir & "\ISEInstall\files""")
+   Call("closedown")
 EndFunc
 
 Func closedown()
